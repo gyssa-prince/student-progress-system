@@ -27,7 +27,7 @@ A full-stack web application to track and visualize Codeforces progress for stud
 ### 1. Clone the Repository
 
 ```sh
-git clone <your-repo-url>
+git clone https://github.com/gyssa-prince/student-progress-system
 cd student-progress-system
 ```
 
