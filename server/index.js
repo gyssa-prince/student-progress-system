@@ -64,5 +64,4 @@ app.listen(PORT, () => {
   console.log(`Server started on port ${PORT}`);
   // Initial sync on server start (for development/initial data population)
   console.log('[Server Startup] Initiating initial sync on server start...');
-  syncAllStudents(); // Trigger full sync when server starts
 });

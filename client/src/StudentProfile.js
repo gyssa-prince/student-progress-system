@@ -15,8 +15,15 @@ const PROBLEM_FILTERS = [
 ];
 
 function daysAgo(date) {
-  if (!date) return Infinity;
-  const diff = Date.now() - new Date(date).getTime();
+  if (!date) {
+    return Infinity;
+  }
+  const d = new Date(date);
+  if (isNaN(d.getTime())) {
+    console.error("Invalid date string passed to daysAgo:", date);
+    return Infinity;
+  }
+  const diff = Date.now() - d.getTime();
   return diff / (1000 * 60 * 60 * 24);
 }
 
@@ -26,7 +33,7 @@ const StudentProfile = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [contestFilter, setContestFilter] = useState(30);
-  const [problemFilter, setProblemFilter] = useState(7);
+  const [problemFilter, setProblemFilter] = useState(90);
 
   const API_BASE_URL = 'http://localhost:5050/api/students';
 
@@ -41,6 +48,7 @@ const StudentProfile = () => {
         }
         const data = await res.json();
         setStudent(data);
+        console.log("Fetched Student Data:", data);
       } catch (err) {
         console.error("Failed to fetch student profile:", err);
         setError("Failed to load student profile. Please ensure the backend is running and data exists.");
@@ -82,28 +90,38 @@ const StudentProfile = () => {
     date: new Date(c.date).toLocaleDateString(),
   }));
 
-  const filteredProblems = (student.problemStats?.solved || []).filter(
-    (p) => daysAgo(p.date) <= problemFilter
+  const buckets = student.problemStats?.buckets || {};
+  const history = student.problemStats?.history || [];
+
+  const allBucketRatings = Object.keys(buckets).map(Number);
+  const filteredHistoryForStats = history.filter(
+    (h) => daysAgo(h.date) <= problemFilter
   );
-  const mostDifficult = filteredProblems.reduce(
-    (max, p) => (p.rating > (max?.rating || 0) ? p : max),
-    null
-  );
-  const totalSolved = filteredProblems.length;
+  const totalSolved = filteredHistoryForStats.reduce((sum, h) => sum + (h.solved || 0), 0);
+  const mostDifficult = totalSolved === 0
+  ? 0
+  : (allBucketRatings.length > 0
+      ? Math.max(...allBucketRatings)
+      : "-");
+
+  let sumOfRatingsTimesCount = 0;
+  let totalProblemsInBuckets = 0;
+  Object.entries(buckets).forEach(([ratingStr, count]) => {
+    const rating = Number(ratingStr);
+    sumOfRatingsTimesCount += rating * count;
+    totalProblemsInBuckets += count;
+  });
   const avgRating =
-    totalSolved > 0
-      ? (
-          filteredProblems.reduce((sum, p) => sum + (p.rating || 0), 0) /
-          totalSolved
-        ).toFixed(1)
+    totalProblemsInBuckets > 0
+      ? (sumOfRatingsTimesCount / totalProblemsInBuckets).toFixed(1)
       : "-";
+
   const daysWithActivity = new Set(
-    filteredProblems.map((p) => new Date(p.date).toDateString())
+    filteredHistoryForStats.map((h) => new Date(h.date).toDateString())
   ).size;
   const avgPerDay =
     daysWithActivity > 0 ? (totalSolved / daysWithActivity).toFixed(2) : "-";
 
-  const buckets = student.problemStats?.buckets || {};
   const barData = Object.keys(buckets)
     .sort((a, b) => parseInt(a) - parseInt(b))
     .map((rating) => ({
@@ -111,8 +129,7 @@ const StudentProfile = () => {
       count: buckets[rating],
     }));
 
-  const history = student.problemStats?.history || [];
-  const heatmapDays = 90;
+  const heatmapDays = problemFilter;
   const numWeeks = Math.ceil(heatmapDays / 7);
 
   const heatmap = Array(7)
@@ -123,10 +140,10 @@ const StudentProfile = () => {
     const d = new Date(h.date);
     const daysAgoVal = daysAgo(d);
 
-    const dayOfWeek = d.getDay();
-    const weekIndex = numWeeks - 1 - Math.floor(daysAgoVal / 7);
-
     if (daysAgoVal >= 0 && daysAgoVal < heatmapDays) {
+      const dayOfWeek = d.getDay();
+      const weekIndex = numWeeks - 1 - Math.floor(daysAgoVal / 7);
+
       if (weekIndex >= 0 && weekIndex < numWeeks) {
         heatmap[dayOfWeek][weekIndex] += h.solved;
       }
@@ -196,7 +213,7 @@ const StudentProfile = () => {
                 <div className="flex flex-wrap gap-3 mt-4">
                   <div className="bg-white bg-opacity-20 rounded-full px-4 py-1 text-sm mx-auto sm:mx-0">
                     <span className="font-semibold">Current Rating:</span>{" "}
-                    {student.rating || "-"}
+                    {student.currentRating || "-"}
                   </div>
                   <div className="bg-white bg-opacity-20 rounded-full px-4 py-1 text-sm mx-auto sm:mx-0">
                     <span className="font-semibold">Max Rating:</span>{" "}
@@ -231,10 +248,10 @@ const StudentProfile = () => {
                     <button
                       key={f.value}
                       onClick={() => setContestFilter(f.value)}
-                      className={`px-3 py-1 rounded-full text-sm mx-auto sm:mx-0 font-semibold ${
+                      className={`px-3 py-1 rounded-full text-sm mx-auto sm:mx-0 font-semibold transition-colors ${
                         contestFilter === f.value
                           ? "bg-blue-600 text-white"
-                          : "bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                          : "bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-700"
                       }`}
                     >
                       {f.label}
@@ -245,8 +262,8 @@ const StudentProfile = () => {
               <div className="w-full h-64 mb-4">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={ratingGraphData}>
-                    <XAxis dataKey="date" />
-                    <YAxis />
+                    <XAxis dataKey="date" interval="preserveStartEnd" />
+                    <YAxis domain={['auto', 'auto']} />
                     <Tooltip />
                     <Line
                       type="monotone"
@@ -261,29 +278,29 @@ const StudentProfile = () => {
               <div className="overflow-x-auto">
                 <table className="min-w-full text-sm mx-auto sm:mx-0 bg-white dark:bg-gray-900 dark:text-white rounded table-auto">
                   <thead>
-                    <tr>
-                      <th className="px-2 py-1">Contest</th>
-                      <th className="px-2 py-1">Date</th>
-                      <th className="px-2 py-1">Rank</th>
-                      <th className="px-2 py-1 hidden sm:table-cell">Old Rating</th>
-                      <th className="px-2 py-1">New Rating</th>
-                      <th className="px-2 py-1 hidden sm:table-cell">Change</th>
-                      <th className="px-2 py-1 hidden md:table-cell">Unsolved</th>
+                    <tr className="bg-gray-100 dark:bg-gray-800">
+                      <th className="px-2 py-2 text-left">Contest</th>
+                      <th className="px-2 py-2 text-left">Date</th>
+                      <th className="px-2 py-2 text-left">Rank</th>
+                      <th className="px-2 py-2 text-left hidden sm:table-cell">Old Rating</th>
+                      <th className="px-2 py-2 text-left">New Rating</th>
+                      <th className="px-2 py-2 text-left hidden sm:table-cell">Change</th>
+                      <th className="px-2 py-2 text-left hidden md:table-cell">Unsolved</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredContests.length > 0 ? (
                       filteredContests.map((c) => (
-                        <tr key={c.contestId}>
-                          <td className="px-2 py-1">{c.contestName}</td>
-                          <td className="px-2 py-1">
+                        <tr key={c.contestId} className="border-t border-gray-200 dark:border-gray-700">
+                          <td className="px-2 py-2">{c.contestName}</td>
+                          <td className="px-2 py-2">
                             {new Date(c.date).toLocaleDateString()}
                           </td>
-                          <td className="px-2 py-1">{c.rank}</td>
-                          <td className="px-2 py-1 hidden sm:table-cell">{c.oldRating}</td>
-                          <td className="px-2 py-1">{c.newRating}</td>
+                          <td className="px-2 py-2">{c.rank}</td>
+                          <td className="px-2 py-2 hidden sm:table-cell">{c.oldRating}</td>
+                          <td className="px-2 py-2">{c.newRating}</td>
                           <td
-                            className={`px-2 py-1 hidden sm:table-cell ${
+                            className={`px-2 py-2 hidden sm:table-cell ${
                               c.ratingChange > 0
                                 ? "text-green-600"
                                 : c.ratingChange < 0
@@ -294,7 +311,7 @@ const StudentProfile = () => {
                             {c.ratingChange > 0 ? "+" : ""}
                             {c.ratingChange}
                           </td>
-                          <td className="px-2 py-1 hidden md:table-cell">
+                          <td className="px-2 py-2 hidden md:table-cell">
                             {c.unsolvedProblems ?? "-"}
                           </td>
                         </tr>
@@ -320,10 +337,10 @@ const StudentProfile = () => {
                     <button
                       key={f.value}
                       onClick={() => setProblemFilter(f.value)}
-                      className={`px-3 py-1 rounded-full text-sm mx-auto sm:mx-0 font-semibold ${
+                      className={`px-3 py-1 rounded-full text-sm mx-auto sm:mx-0 font-semibold transition-colors ${
                         problemFilter === f.value
                           ? "bg-blue-600 text-white"
-                          : "bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+                          : "bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-700"
                       }`}
                     >
                       {f.label}
@@ -334,14 +351,14 @@ const StudentProfile = () => {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4">
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-3 text-center">
                   <div className="text-xs text-gray-500 dark:text-gray-300">Most Difficult</div>
-                  <div className="font-bold text-lg">{mostDifficult ? mostDifficult.rating : "-"}</div>
+                  <div className="font-bold text-lg">{mostDifficult}</div>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-3 text-center">
                   <div className="text-xs text-gray-500 dark:text-gray-300">Total Solved</div>
                   <div className="font-bold text-lg">{totalSolved}</div>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-3 text-center">
-                  <div className="text-xs text-gray-500 dark:text-gray-300">Avg Rating</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-300">Avg Rating <span className="text-gray-400">(All-Time)</span></div>
                   <div className="font-bold text-lg">{avgRating}</div>
                 </div>
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-3 text-center">
@@ -362,9 +379,9 @@ const StudentProfile = () => {
                 </ResponsiveContainer>
               </div>
               <div>
-                <h3 className="text-md font-semibold mb-2">Submission Heatmap (last 90 days)</h3>
+                <h3 className="text-md font-semibold mb-2">Submission Heatmap (last {problemFilter} days)</h3>
                 <div className="overflow-x-auto py-2">
-                  {numWeeks > 0 && heatmapXLabels.length > 0 ? (
+                  {numWeeks > 0 && heatmapXLabels.length > 0 && heatmap.flat().some(val => val > 0) ? (
                     <HeatMapGrid
                       xLabels={heatmapXLabels}
                       yLabels={[
@@ -393,7 +410,7 @@ const StudentProfile = () => {
                     />
                   ) : (
                     <p className="text-center text-gray-500 dark:text-gray-400 mt-4">
-                      No recent submission data for heatmap.
+                      No recent submission data for heatmap for the selected period.
                     </p>
                   )}
                 </div>

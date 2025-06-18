@@ -16,9 +16,8 @@ const StudentList = () => {
     cfHandle: '',
   });
 
-  // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(4); // Number of students per page
+  const [itemsPerPage] = useState(5);
 
   const API_BASE_URL = 'http://localhost:5050/api/students';
 
@@ -31,8 +30,8 @@ const StudentList = () => {
         throw new Error(`HTTP error! status: ${res.status}`);
       }
       const data = await res.json();
-      setStudents(data);
-      setCurrentPage(1); // Reset to first page after fetching new data
+      const sortedData = data.sort((a, b) => new Date(b.createdAt || b._id.getTimestamp()) - new Date(a.createdAt || a._id.getTimestamp()));
+      setStudents(sortedData);
     } catch (err) {
       console.error("Failed to fetch students:", err);
       setError("Failed to load students. Please ensure the backend is running.");
@@ -75,25 +74,35 @@ const StudentList = () => {
     setLoading(true);
     try {
       let res;
+      let newStudentData;
+
       if (currentStudent) {
         res = await fetch(`${API_BASE_URL}/${currentStudent._id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(formData),
         });
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        const updatedStudent = await res.json();
+        setStudents(prevStudents => prevStudents.map(s => s._id === updatedStudent._id ? updatedStudent : s));
+
       } else {
         res = await fetch(API_BASE_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(formData),
         });
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        newStudentData = await res.json();
+        setStudents(prevStudents => [newStudentData, ...prevStudents].sort((a, b) => new Date(b.createdAt || b._id.getTimestamp()) - new Date(a.createdAt || a._id.getTimestamp())));
+        setCurrentPage(1);
       }
 
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`);
-      }
       closeModal();
-      fetchStudents(); // Refresh the list
     } catch (err) {
       console.error("Failed to save student:", err);
       setError("Failed to save student data. Please check your inputs.");
@@ -112,7 +121,13 @@ const StudentList = () => {
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
         }
-        fetchStudents(); // Refresh the list
+        setStudents(prevStudents => prevStudents.filter(student => student._id !== id));
+        const newTotalPages = Math.ceil((students.length - 1) / itemsPerPage);
+        if (currentPage > newTotalPages && newTotalPages > 0) {
+          setCurrentPage(newTotalPages);
+        } else if (students.length - 1 === 0) {
+            setCurrentPage(1);
+        }
       } catch (err) {
         console.error("Failed to delete student:", err);
         setError("Failed to delete student.");
@@ -132,8 +147,8 @@ const StudentList = () => {
       if (!res.ok) {
         throw new Error(`HTTP error! status: ${res.status}`);
       }
-      alert('Codeforces data sync process initiated on backend. Data will update shortly.');
-      setTimeout(fetchStudents, 4000); // Refetch after 4 seconds to allow backend processing
+      setTimeout(fetchStudents, 2000);
+      window.location.reload();
     } catch (err) {
       console.error("Failed to initiate sync:", err);
       setError("Failed to initiate Codeforces sync. Check backend logs.");
@@ -178,7 +193,6 @@ const StudentList = () => {
     document.body.removeChild(link);
   };
 
-  // Pagination Logic
   const indexOfLastStudent = currentPage * itemsPerPage;
   const indexOfFirstStudent = indexOfLastStudent - itemsPerPage;
   const currentStudents = useMemo(() => {
@@ -193,10 +207,9 @@ const StudentList = () => {
     }
   };
 
-  // Function to render page numbers with ellipses
   const renderPageNumbers = () => {
     const pageNumbers = [];
-    const maxPageNumbersToShow = 5; // e.g., 1 2 3 ... 7
+    const maxPageNumbersToShow = 5;
     let startPage = Math.max(1, currentPage - Math.floor(maxPageNumbersToShow / 2));
     let endPage = Math.min(totalPages, startPage + maxPageNumbersToShow - 1);
 
@@ -224,7 +237,7 @@ const StudentList = () => {
 
     return pageNumbers.map((number, index) => (
       <button
-        key={index} // Using index here is fine because the array is transient for rendering
+        key={index}
         onClick={() => typeof number === 'number' && paginate(number)}
         disabled={typeof number !== 'number' || number === currentPage}
         className={`px-3 py-1 rounded-md text-sm font-medium ${
@@ -241,7 +254,6 @@ const StudentList = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      {/* Header with responsive buttons */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-3">
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 text-center sm:text-left mb-3 sm:mb-0">
           Student List
